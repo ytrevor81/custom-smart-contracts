@@ -1,0 +1,17 @@
+{
+  "name": "custom-smart-contracts",
+  "author": "trevoryoungquist2.0@gmail.com",
+  "dependencies": {
+    "@openzeppelin/contracts": "4.3.2",
+    "@truffle/hdwallet-provider": "1.5.0",
+    "dotenv": "10.0.0",
+    "truffle": "5.4.13",
+    "web3": "1.6.0"
+  },
+  "browserslist": [
+    ">0.2%",
+    "not dead",
+    "not ie <= 11",
+    "not op_mini all"
+  ]
+}
