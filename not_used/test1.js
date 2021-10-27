@@ -1,10 +1,10 @@
-const FundMe = artifacts.require("FundMe")
+const StorageFactory = artifacts.require("StorageFactory")
 
-contract('FundMe', function(accounts) {
+contract('StorageFactory', function(accounts) {
   var contractInstance;
 
   it('Contract deployed', function() {
-    return FundMe.deployed().then(function(instance) {
+    return StorageFactory.deployed().then(function(instance) {
       contractInstance = instance;
       contractInstance.createSimpleStorageContract();
       contractInstance.sfStore(0, 31);
