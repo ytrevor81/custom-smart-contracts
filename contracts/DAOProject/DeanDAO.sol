@@ -2,11 +2,14 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import "./IDeanToken.sol";
 import "./IDeanDAO.sol";
+import "./IDeanDAOExecutorTimeLock.sol";
 
 contract DeanDAO is IDeanDAO {
 
-  address public acceptedTokenAddress;
+  address public deanTokenAddress;
   string public _name = "DeanDAO";
   address public governor;
   address public executor;
@@ -22,6 +25,7 @@ contract DeanDAO is IDeanDAO {
     uint256 proposalID;
     string description;
     address proposer;
+    address[] voters;
     uint256 votesFor;
     uint256 votesAgainst;
     uint256 numberOfVotes;
@@ -48,8 +52,8 @@ contract DeanDAO is IDeanDAO {
   //returns how many votes in total a proposal has received
   mapping (uint256 => uint256) private numberOfVotesForProposal;
 
-  constructor(address _deanTokenAddress, uint256 _quorum) {
-    acceptedTokenAddress = _deanTokenAddress;
+  constructor (address _deanTokenAddress, uint256 _quorum) {
+    deanTokenAddress = _deanTokenAddress;
     governor = msg.sender;
     proposalIDCounter = 0;
     quorum = _quorum;
@@ -89,12 +93,10 @@ contract DeanDAO is IDeanDAO {
   event VoteSubmitted (
     address indexed voter,
     uint256 proposalID,
-    bool support,
+    bool support
     );
 
-  event ReturnVoteTokens (
-    address[] indexed tokenHolderAddresses,
-    uint256[] amountOfDTKReturnedEach);
+  event ReturnVoteTokens (address[] indexed tokenHolderAddresses);
 
   event ExecutorRoleAssigned (address indexed _executor);
   event GovernorRoleAssigned (address indexed _governor);
@@ -105,7 +107,7 @@ contract DeanDAO is IDeanDAO {
 
   //only allows DTK holders
   modifier onlyDTKHolder() {
-    require(IERC20(acceptedTokenAddress).balanceOf(msg.sender) > 0, "Only DeanToken holders can participate");
+    require(IERC20(deanTokenAddress).balanceOf(msg.sender) > 0, "Only DeanToken holders can participate");
     _;
   }
   //only allows the governor address
@@ -159,7 +161,7 @@ contract DeanDAO is IDeanDAO {
     return _vote.support;
   }
 
-  function voterAlreadyVotedOnProposal(address _user) internal returns (bool) {
+  function voterAlreadyVotedOnProposal(address _user) internal view returns (bool) {
     if (submittedVotes[_user].proposalID != 0) {
       return true;
     }
@@ -167,6 +169,20 @@ contract DeanDAO is IDeanDAO {
   }
 
   function voteAssignedToProposal(Vote memory _vote) internal {
+    Proposal memory proposal = proposals[_vote.proposalID];
+    uint256 lengthOfPreviousVotersArray = proposal.voters.length;
+    address[] memory updatedVotersArray = new address[](lengthOfPreviousVotersArray++);
+
+    for (uint i=0; i < updatedVotersArray.length; i++) {
+      if (i < lengthOfPreviousVotersArray) {
+        updatedVotersArray[i] = proposal.voters[i];
+      }
+      else {
+        updatedVotersArray[i] = _vote.voter;
+      }
+    }
+    proposals[_vote.proposalID].voters = updatedVotersArray;
+
     proposals[_vote.proposalID].numberOfVotes = proposals[_vote.proposalID].numberOfVotes + 1;
 
     if (proposals[_vote.proposalID].numberOfVotes >= quorum) {
@@ -182,13 +198,13 @@ contract DeanDAO is IDeanDAO {
   }
 
   function receiveVotingToken(address _sender) internal {
-    IERC20(acceptedTokenAddress).transferFrom(_sender, address(this), valueOfEachVote);
+    IERC20(deanTokenAddress).transferFrom(_sender, address(this), valueOfEachVote);
     _amountOfDTK += valueOfEachVote;
   }
 
   function castVote(address tokenAddress, uint256 _proposalID, bool _support) external payable onlyDTKHolder returns (bool) {
     address _sender = msg.sender;
-    require(tokenAddress == acceptedTokenAddress, "We only except Dean Tokens (DTK) for voting");
+    require(tokenAddress == deanTokenAddress, "We only except Dean Tokens (DTK) for voting");
     require(msg.value == valueOfEachVote, "Only 1 DeanToken is excepted as a vote for or against a proposal");
     require(submittedVotes[_sender].voter != _sender, "User has already voted on this proposal");
 
@@ -217,7 +233,9 @@ contract DeanDAO is IDeanDAO {
     uint256 deadline = block.timestamp + _deadline;
     ProposalState state = ProposalState.Active;
 
-    Proposal memory newProposal = Proposal(proposalIDCounter, _description, proposer, dateProposed, deadline, state);
+    address[] memory _voters;
+
+    Proposal memory newProposal = Proposal(proposalIDCounter, _description, proposer, _voters, 0, 0, 0, dateProposed, deadline, state);
     proposals.push(newProposal);
 
     proposalIDCounter = proposalIDCounter + 1;
@@ -225,11 +243,44 @@ contract DeanDAO is IDeanDAO {
     return true;
   }
 
+  function multiSendDTK(uint256 _proposalID) internal {
+    address[] memory voters = proposals[_proposalID].voters;
+
+    for (uint i=0; i < voters.length; i++) {
+      if (IDeanToken(deanTokenAddress).getBlackListStatus(voters[i])) {
+          continue;
+        }
+        else {
+          IERC20(deanTokenAddress).transfer(voters[i], valueOfEachVote);
+          _amountOfDTK = _amountOfDTK - 1;
+        }
+    }
+
+    emit ReturnVoteTokens(voters);
+  }
+
   function cancelProposal(uint256 _proposalID) external onlyGovernor returns (bool success) {
-    //cancel proposal
-    //return DTK tokens to voters -- multisend
-    //emit ProposalCancelled
-    //emit ReturnVoteTokens
+    Proposal memory proposal = proposals[_proposalID];
+    require (proposal.state == ProposalState.Active, "Proposal is not active.");
+    proposals[_proposalID].state = ProposalState.Cancelled;
+
+    if (proposal.numberOfVotes > 0) {
+      multiSendDTK(_proposalID);
+    }
+
+
+    emit ProposalCancelled (proposal.proposalID, proposal.description, ProposalState.Cancelled);
+    return true;
+  }
+
+  function proposalExpired(uint256 _proposalID) external onlyExecutor override returns (bool success) {
+    Proposal memory proposal = proposals[_proposalID];
+    require (proposal.state == ProposalState.Active, "Proposal is not active.");
+    proposals[_proposalID].state = ProposalState.Expired;
+
+    multiSendDTK(_proposalID);
+
+    emit ProposalExpired (proposal.proposalID, proposal.description, ProposalState.Cancelled);
     return true;
   }
 
@@ -247,6 +298,11 @@ contract DeanDAO is IDeanDAO {
 
     emit ProposalExecuted(succeededProposal.proposalID, succeededProposal.description, succeededProposal.state);
     return true;
+  }
+
+  function checkProposalStatus(uint256 _proposalID) external onlyGovernor {
+    // sent to executor contract
+    // executor returns value about proposal state
   }
 
   /**
