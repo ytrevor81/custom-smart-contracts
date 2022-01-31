@@ -9,7 +9,4 @@ interface IDeanDAO {
   function proposalSucceeded(uint256 _proposalID) external returns (bool success);
 
   function proposalExpired(uint256 _proposalID) external returns (bool);
-
-  //Returns boolean whether pending proposal has reached quorum
-  function proposalHasMetQuorum(uint256 _proposalID) external view returns (bool);
 }

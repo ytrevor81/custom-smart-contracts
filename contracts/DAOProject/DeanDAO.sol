@@ -222,11 +222,6 @@ contract DeanDAO is IDeanDAO {
     * Proposal functions:
   **/
 
-  function proposalHasMetQuorum(uint256 _proposalID) external view override returns (bool) {
-    bool proposalCanConsidered = proposalMetQuorum[_proposalID];
-    return proposalCanConsidered;
-  }
-
   function submitProposal(string calldata _description, uint256 _deadline) external onlyDTKHolder returns (bool success) {
     address proposer = msg.sender;
     uint256 dateProposed = block.timestamp;
@@ -239,6 +234,9 @@ contract DeanDAO is IDeanDAO {
     proposals.push(newProposal);
 
     proposalIDCounter = proposalIDCounter + 1;
+
+    IDeanDAOExecutorTimeLock(executor).submitProposal(newProposal.proposalID, newProposal.deadline);
+
     emit ProposalSubmitted(newProposal.proposalID, newProposal.description, newProposal.proposer, newProposal.deadline);
     return true;
   }
@@ -300,9 +298,9 @@ contract DeanDAO is IDeanDAO {
     return true;
   }
 
-  function checkProposalStatus(uint256 _proposalID) external onlyGovernor {
-    // sent to executor contract
-    // executor returns value about proposal state
+  function checkProposalForExecution(uint256 _proposalID) external onlyGovernor {
+    Proposal memory proposal = proposals[_proposalID];
+    IDeanDAOExecutorTimeLock(executor).checkProposalForDecision(_proposalID, proposal.votesFor, proposal.votesAgainst, proposal.numberOfVotes, quorum);
   }
 
   /**

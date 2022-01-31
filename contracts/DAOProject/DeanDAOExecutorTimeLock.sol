@@ -2,17 +2,62 @@
 pragma solidity ^0.8.0;
 
 import "./IDeanDAOExecutorTimeLock.sol";
+import "./IDeanDAO.sol";
 
 contract DeanDAOExecutorTimeLock is IDeanDAOExecutorTimeLock {
 
-  uint public constant duration = 365 days;
-  uint public immutable end;
+  address private governor;
+  address private deanDAOAddress;
 
-  constructor() {
-    end = block.timestamp + duration;
+  struct ProposalWithDeadLine {
+    uint256 proposalID;
+    uint256 deadline;
   }
 
-  function seeBlockTime() external view returns (uint) {
-    return block.timestamp;
+  ProposalWithDeadLine[] proposalsWithADealine;
+
+  constructor() {
+    governor = msg.sender;
+  }
+
+  modifier onlyDeanDAO() {
+    require(msg.sender == deanDAOAddress, "Only the DeanDAO contract can call this function");
+    _;
+  }
+
+  modifier onlyGovernor() {
+    require(msg.sender == governor, "Only the governor contract can call this function");
+    _;
+  }
+
+  function checkProposalForDecision(uint256 _proposalID, uint256 _votesFor, uint256 _votesAgainst, uint256 _numberOfVotes, uint256 _quorum) external onlyDeanDAO override {
+    ProposalWithDeadLine memory proposal = proposalsWithADealine[_proposalID];
+
+    if (proposal.deadline >= block.timestamp) {
+      if (_numberOfVotes >= _quorum) {
+        if (_votesFor <= _votesAgainst) {
+          IDeanDAO(deanDAOAddress).proposalDefeated(proposal.proposalID);
+        }
+        else if (_votesFor > _votesAgainst) {
+          IDeanDAO(deanDAOAddress).proposalExpired(proposal.proposalID);
+        }
+      }
+      else {
+        IDeanDAO(deanDAOAddress).proposalExpired(proposal.proposalID);
+      }
+    }
+  }
+
+  function submitProposal(uint256 _proposalID, uint256 _deadline) external override onlyDeanDAO {
+    ProposalWithDeadLine memory proposal = ProposalWithDeadLine(_proposalID, _deadline);
+    proposalsWithADealine.push(proposal);
+  }
+
+  function setGovernor(address _newGovernor) external onlyGovernor {
+    governor = _newGovernor;
+  }
+
+  function setDAOAddress(address _dao) external onlyGovernor {
+    deanDAOAddress = _dao;
   }
 }
