@@ -16,6 +16,10 @@ contract DeanDAOExecutorTimeLock is IDeanDAOExecutorTimeLock {
 
   ProposalWithDeadLine[] proposalsWithADealine;
 
+  event AssignedDAOAddress (address indexed _daoAddress);
+  event AssignedGovernorAddress (address indexed _newGovernor);
+  event NewProposalSubmitted (uint256 proposalID, uint256 deadline);
+
   constructor() {
     governor = msg.sender;
   }
@@ -51,13 +55,17 @@ contract DeanDAOExecutorTimeLock is IDeanDAOExecutorTimeLock {
   function submitProposal(uint256 _proposalID, uint256 _deadline) external override onlyDeanDAO {
     ProposalWithDeadLine memory proposal = ProposalWithDeadLine(_proposalID, _deadline);
     proposalsWithADealine.push(proposal);
+
+    emit NewProposalSubmitted(proposal.proposalID, proposal.deadline);
   }
 
   function setGovernor(address _newGovernor) external onlyGovernor {
     governor = _newGovernor;
+    emit AssignedGovernorAddress(_newGovernor);
   }
 
   function setDAOAddress(address _dao) external onlyGovernor {
     deanDAOAddress = _dao;
+    emit AssignedDAOAddress(_dao);
   }
 }

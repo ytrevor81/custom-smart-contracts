@@ -14,6 +14,8 @@ contract DeanDAO is IDeanDAO {
   address public governor;
   address public executor;
 
+
+  uint256 public votingPeriod;
   uint256 private immutable valueOfEachVote;
   uint256 private _amountOfDTK;
   uint256 private proposalIDCounter;
@@ -52,11 +54,12 @@ contract DeanDAO is IDeanDAO {
   //returns how many votes in total a proposal has received
   mapping (uint256 => uint256) private numberOfVotesForProposal;
 
-  constructor (address _deanTokenAddress, uint256 _quorum) {
+  constructor (address _deanTokenAddress) {
     deanTokenAddress = _deanTokenAddress;
     governor = msg.sender;
     proposalIDCounter = 0;
-    quorum = _quorum;
+    quorum = 3;
+    votingPeriod = 3 minutes;
     valueOfEachVote = 1 * 10 **18; //1 token is 1 vote
   }
 
@@ -101,6 +104,9 @@ contract DeanDAO is IDeanDAO {
   event ExecutorRoleAssigned (address indexed _executor);
   event GovernorRoleAssigned (address indexed _governor);
 
+  event VotingPeriodChanged (uint256 newVotingPeriod);
+  event QuorumChanged (uint256 newQuorum);
+
   /**
     * Modifiers
   **/
@@ -125,11 +131,6 @@ contract DeanDAO is IDeanDAO {
   /**
     * Viewing states of the DeanDAO Protocal
   **/
-
-  //Returns the governor address of the DAO
-  function name() public view returns (string memory) {
-    return _name;
-  }
 
   //Returns the amount of DTK tokens held by the contract
   function amountOfDTK() external view onlyGovernor returns (uint256) {
@@ -222,7 +223,8 @@ contract DeanDAO is IDeanDAO {
     * Proposal functions:
   **/
 
-  function submitProposal(string calldata _description, uint256 _deadline) external onlyDTKHolder returns (bool success) {
+  function submitProposal(string calldata _description) external onlyDTKHolder returns (bool success) {
+    uint256 _deadline = block.timestamp + votingPeriod;
     address proposer = msg.sender;
     uint256 dateProposed = block.timestamp;
     uint256 deadline = block.timestamp + _deadline;
@@ -318,5 +320,15 @@ contract DeanDAO is IDeanDAO {
   function assignNewGovernor (address _governor) external onlyGovernor {
     governor = _governor;
     emit GovernorRoleAssigned(_governor);
+  }
+
+  function changeVotingPeriod (uint256 _votingPeriod) external onlyGovernor {
+    votingPeriod = _votingPeriod; //time lock smart contract
+    emit VotingPeriodChanged(_votingPeriod);
+  }
+
+  function changeQuorum (uint256 _quorum) external onlyGovernor {
+    quorum = _quorum; //time lock smart contract
+    emit QuorumChanged(_quorum);
   }
 }

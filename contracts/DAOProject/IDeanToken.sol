@@ -5,8 +5,4 @@ interface IDeanToken  {
 
   function getBlackListStatus(address _user) external view returns(bool);
 
-  //Governor address of DeanDAO protocal can call these functions
-  function addToBlackList(address _user) external;
-
-  function removeFromBlackList (address _user) external;
 }

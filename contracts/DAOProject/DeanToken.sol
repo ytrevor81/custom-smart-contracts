@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract DeanToken is ERC20, Ownable, IDeanToken {
 
   constructor() ERC20("Dean Token", "DTK") {
-    _mint(_msgSender(), 100000 * 10 ** uint256(decimals()));
+    _mint(_msgSender(), 1000000 * 10 ** uint256(decimals()));
   }
 
   mapping (address => bool) private isBlackListed;
