@@ -31,12 +31,12 @@ contract DeanToken is ERC20, Ownable, IDeanToken {
     return isBlackListed[_user];
   }
 
-  function addToBlackList(address _user) external override onlyOwner {
+  function addToBlackList(address _user) external onlyOwner {
     isBlackListed[_user] = true;
     AddedBlackList(_user);
   }
 
-  function removeFromBlackList (address _user) external override onlyOwner {
+  function removeFromBlackList (address _user) external onlyOwner {
     isBlackListed[_user] = false;
     RemovedBlackList(_user);
   }
