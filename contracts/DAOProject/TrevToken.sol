@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./IDeanToken.sol";
+import "./ITrevToken.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract DeanToken is ERC20, Ownable, IDeanToken {
+contract TrevToken is ERC20, Ownable, ITrevToken {
 
-  constructor() ERC20("Dean Token", "DTK") {
+  constructor() ERC20("Trev Token", "TTK") {
     _mint(_msgSender(), 1000000 * 10 ** uint256(decimals()));
   }
 
@@ -33,11 +33,11 @@ contract DeanToken is ERC20, Ownable, IDeanToken {
 
   function addToBlackList(address _user) external onlyOwner {
     isBlackListed[_user] = true;
-    AddedBlackList(_user);
+    emit AddedBlackList(_user);
   }
 
   function removeFromBlackList (address _user) external onlyOwner {
     isBlackListed[_user] = false;
-    RemovedBlackList(_user);
+    emit RemovedBlackList(_user);
   }
 }

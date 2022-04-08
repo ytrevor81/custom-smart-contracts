@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface IDeanDAOExecutorTimeLock  {
+interface ITrevDAOExecutorTimeLock  {
 
     function submitProposal(uint256 _proposalID, uint256 _deadline) external;
 
