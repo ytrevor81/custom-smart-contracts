@@ -21,11 +21,13 @@ contract TrevDAO is ITrevDAO {
   uint256 private proposalIDCounter;
   uint256 private quorum;
 
+  bool private executorContractSet;
+
   enum ProposalState { Active, Cancelled, Defeated, Suceeded, Expired }
 
   struct Proposal {
     uint256 proposalID;
-    bytes32 description; //change to bytes32 eventually
+    string description; //change to bytes32 eventually
     address proposer;
     address[] voters;
     uint256 votesFor;
@@ -61,29 +63,30 @@ contract TrevDAO is ITrevDAO {
     quorum = 3;
     votingPeriod = 3 minutes;
     valueOfEachVote = 1 * 10 **18; //1 token is 1 vote
+    executorContractSet = false;
   }
 
   event ProposalSubmitted (
     uint256 proposalID,
-    bytes32 description,
+    string description,
     address proposer,
     uint256 deadline);
 
   event ProposalCancelled (
     uint256 proposalID,
-    bytes32 description,
+    string description,
     ProposalState state
     );
 
   event ProposalDefeated (
     uint256 proposalID,
-    bytes32 description,
+    string description,
     ProposalState state
     );
 
   event ProposalExecuted (
     uint256 proposalID,
-    bytes32 description,
+    string description,
     ProposalState state
     );
 
@@ -119,6 +122,12 @@ contract TrevDAO is ITrevDAO {
   //only allows the proposal executor address
   modifier onlyExecutor() {
     require(msg.sender == executor, "Only the executor can call this function");
+    _;
+  }
+
+  //only allows the one call to change executor timelock address
+  modifier onlyOnce() {
+    require(executorContractSet == false, "This can only be called once");
     _;
   }
 
@@ -217,7 +226,7 @@ contract TrevDAO is ITrevDAO {
     * Proposal functions:
   **/
 
-  function submitProposal(bytes32 _description) external onlyDTKHolder returns (bool success) {
+  function submitProposal(string calldata _description) external onlyDTKHolder returns (bool success) {
     uint256 _deadline = block.timestamp + votingPeriod;
     address proposer = msg.sender;
     uint256 dateProposed = block.timestamp;
@@ -234,6 +243,7 @@ contract TrevDAO is ITrevDAO {
     ITrevDAOExecutorTimeLock(executor).submitProposal(newProposal.proposalID, newProposal.deadline);
 
     emit ProposalSubmitted(newProposal.proposalID, newProposal.description, newProposal.proposer, newProposal.deadline);
+
     return true;
   }
 
@@ -306,8 +316,10 @@ contract TrevDAO is ITrevDAO {
   **/
 
   //the executor of proposals is a time-lock contract that will execute decisions based on if a proposal has met the required quorum, votes for/against
-  function setExecutor (address _executor) external onlyGovernor {
+  
+  function setExecutor (address _executor) external onlyOnce onlyGovernor {
     executor = _executor; //time lock smart contract
+    executorContractSet = true; //cannot call this function again
     emit ExecutorRoleAssigned(_executor);
   }
 
