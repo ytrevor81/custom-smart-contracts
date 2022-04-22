@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-import "./ITrevToken.sol";
+import "./TrevToken.sol";
 import "./ITrevDAO.sol";
 import "./ITrevDAOExecutorTimeLock.sol";
 
@@ -17,13 +15,13 @@ contract TrevDAO is ITrevDAO {
 
   uint256 public votingPeriod;
   uint256 private immutable valueOfEachVote;
-  uint256 private _amountOfDTK;
+  uint256 private _amountOfTTK;
   uint256 private proposalIDCounter;
   uint256 private quorum;
 
   bool private executorContractSet;
 
-  enum ProposalState { Active, Cancelled, Defeated, Suceeded, Expired }
+  enum ProposalState { Active, Cancelled, Defeated, Suceeded }
 
   struct Proposal {
     uint256 proposalID;
@@ -44,11 +42,21 @@ contract TrevDAO is ITrevDAO {
     bool support;
   }
 
+  struct Stake {
+    address voter;
+    uint256 amount;
+    bool currentlyStaking;
+  }
+
   Vote[] votes;
   Proposal[] proposals;
+  Stake[] staking;
 
   //address mapped to specific vote
   mapping (address => Vote) private submittedVotes;
+
+  //staking mapped to specific address
+  mapping (address => bool) private currentlyStaking;
 
   //proposal ID mapped to whether it has met the minimum amount of votes to be considered for execution
   mapping (uint256 => bool) private proposalMetQuorum;
@@ -90,6 +98,11 @@ contract TrevDAO is ITrevDAO {
     ProposalState state
     );
 
+  event Staking (
+    address staker,
+    uint256 amount
+    );
+
   event VoteSubmitted (
     address indexed voter,
     uint256 proposalID,
@@ -108,10 +121,10 @@ contract TrevDAO is ITrevDAO {
     * Modifiers
   **/
 
-  //only allows DTK holders
-  modifier onlyDTKHolder() {
-    require(IERC20(trevTokenAddress).balanceOf(msg.sender) > 0, "Only TrevToken holders can participate");
-    _;
+  //only allows TTK holders
+  modifier onlyTTKHolder() {
+   require(TrevToken(trevTokenAddress).balanceOf(msg.sender) > 0, "Only TrevToken holders can participate");
+   _;
   }
   //only allows the governor address
   modifier onlyGovernor() {
@@ -125,19 +138,13 @@ contract TrevDAO is ITrevDAO {
     _;
   }
 
-  //only allows the one call to change executor timelock address
-  modifier onlyOnce() {
-    require(executorContractSet == false, "This can only be called once");
-    _;
-  }
-
   /**
     * Viewing states of the TrevDAO Protocal
   **/
 
-  //Returns the amount of DTK tokens held by the contract
-  function amountOfDTK() external view onlyGovernor returns (uint256) {
-    return _amountOfDTK;
+  //Returns the amount of TTK tokens held by the contract
+  function amountOfTTK() external view onlyGovernor returns (uint256) {
+    return _amountOfTTK;
   }
 
   //Returns the version number of the DAO protocal
@@ -146,13 +153,13 @@ contract TrevDAO is ITrevDAO {
   }
 
   //Returns the state of a proposal
-  function viewProposal(uint256 _proposalID) external view onlyDTKHolder returns (Proposal memory) {
+  function viewProposal(uint256 _proposalID) external view returns (Proposal memory) {
     Proposal memory proposal = proposals[_proposalID];
     return proposal;
   }
 
   //Returns a specific vote from a voter
-  function viewVote(address _user) external view onlyDTKHolder returns (Vote memory) {
+  function viewVote(address _user) external view returns (Vote memory) {
     Vote memory vote = submittedVotes[_user];
     return vote;
   }
@@ -203,14 +210,15 @@ contract TrevDAO is ITrevDAO {
 
   function receiveVotingToken(address _sender) internal {
     IERC20(trevTokenAddress).transferFrom(_sender, address(this), valueOfEachVote);
-    _amountOfDTK += valueOfEachVote;
+    _amountOfTTK += valueOfEachVote;
   }
 
-  function castVote(address tokenAddress, uint256 _proposalID, bool _support) external payable onlyDTKHolder returns (bool) {
+  function castVote(address tokenAddress, uint256 _proposalID, bool _support) external returns (bool) {
     address _sender = msg.sender;
-    require(tokenAddress == trevTokenAddress, "We only except Trev Tokens (DTK) for voting");
-    require(msg.value == valueOfEachVote, "Only 1 TrevToken is excepted as a vote for or against a proposal");
+    //require(tokenAddress == trevTokenAddress, "We only except Trev Tokens (TTK) for voting");
+    //require(msg.value == valueOfEachVote, "Only 1 TrevToken is excepted as a vote for or against a proposal");
     require(submittedVotes[_sender].voter != _sender, "User has already voted on this proposal");
+    require(IERC20(trevTokenAddress).balanceOf(_sender) > 0, "Only TrevToken holders can participate");
 
     receiveVotingToken(_sender);
 
@@ -226,7 +234,8 @@ contract TrevDAO is ITrevDAO {
     * Proposal functions:
   **/
 
-  function submitProposal(string calldata _description) external onlyDTKHolder returns (bool success) {
+  function submitProposal(string calldata _description) external returns (bool success) {
+    require(IERC20(trevTokenAddress).balanceOf(msg.sender) > 0, "Only TrevToken holders can participate");
     uint256 _deadline = block.timestamp + votingPeriod;
     address proposer = msg.sender;
     uint256 dateProposed = block.timestamp;
@@ -247,42 +256,36 @@ contract TrevDAO is ITrevDAO {
     return true;
   }
 
-  function multiSendDTK(uint256 _proposalID) internal {
-    address[] memory voters = proposals[_proposalID].voters;
+  // function withdraw(uint256 amount) external {
+  //   require(currentlyStaking[msg.sender] == true, "Not staking");
+  //   uint256 totalAmount = amount + 100;
 
-    for (uint i=0; i < voters.length; i++) {
-      if (ITrevToken(trevTokenAddress).getBlackListStatus(voters[i])) {
-          continue;
-        }
-        else {
-          IERC20(trevTokenAddress).transfer(voters[i], valueOfEachVote);
-          _amountOfDTK = _amountOfDTK - 1;
-        }
-    }
+  //   TrevToken token = TrevToken(trevTokenAddress);
+  //   token.mint(address(this), 100);
+  //   token.transfer(msg.sender, totalAmount);
+  //   // token.transfer(address(this), amount);
+  //   // currentlyStaking[_sender] = true;
+  //   // _amountOfTTK += amount;
+  //   //token.increaseAllowance(address(this), amount);
+  //   }
 
-    emit ReturnVoteTokens(voters);
+  function stakeNow(uint256 amount) public {
+    address staker = msg.sender;
+    TrevToken token = TrevToken(trevTokenAddress);
+    token.transferFrom(staker, address(this), amount);
+    currentlyStaking[staker] = true;
+    emit Staking(staker, amount);
+  }
+
+  function seeBalenceOfContract() external view returns (uint256) {
+    uint256 currentBalence = TrevToken(trevTokenAddress).balanceOf(address(this));
+    return currentBalence;
   }
 
   function cancelProposal(uint256 _proposalID) external onlyGovernor returns (bool success) {
     Proposal memory proposal = proposals[_proposalID];
     require (proposal.state == ProposalState.Active, "Proposal is not active.");
     proposals[_proposalID].state = ProposalState.Cancelled;
-
-    if (proposal.numberOfVotes > 0) {
-      multiSendDTK(_proposalID);
-    }
-
-
-    emit ProposalCancelled (proposal.proposalID, proposal.description, ProposalState.Cancelled);
-    return true;
-  }
-
-  function proposalExpired(uint256 _proposalID) external onlyExecutor override returns (bool success) {
-    Proposal memory proposal = proposals[_proposalID];
-    require (proposal.state == ProposalState.Active, "Proposal is not active.");
-    proposals[_proposalID].state = ProposalState.Expired;
-
-    multiSendDTK(_proposalID);
 
     emit ProposalCancelled (proposal.proposalID, proposal.description, ProposalState.Cancelled);
     return true;
@@ -306,6 +309,7 @@ contract TrevDAO is ITrevDAO {
 
   function checkProposalForExecution(uint256 _proposalID) external onlyGovernor {
     Proposal memory proposal = proposals[_proposalID];
+    require (proposal.state == ProposalState.Active, "Proposal is not active.");
     ITrevDAOExecutorTimeLock(executor).checkProposalForDecision(_proposalID, proposal.votesFor, proposal.votesAgainst, proposal.numberOfVotes, quorum);
   }
 
@@ -316,10 +320,10 @@ contract TrevDAO is ITrevDAO {
   **/
 
   //the executor of proposals is a time-lock contract that will execute decisions based on if a proposal has met the required quorum, votes for/against
-  
-  function setExecutor (address _executor) external onlyOnce onlyGovernor {
-    executor = _executor; //time lock smart contract
+  function setExecutor (address _executor) external onlyGovernor {
+    require(executorContractSet == false, "This can only be called once"); //this function can only be called one time in this contract's lifetime
     executorContractSet = true; //cannot call this function again
+    executor = _executor; //time lock smart contract
     emit ExecutorRoleAssigned(_executor);
   }
 

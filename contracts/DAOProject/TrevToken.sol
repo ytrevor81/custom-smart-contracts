@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "./ITrevDAO.sol";
 import "./ITrevToken.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract TrevToken is ERC20, Ownable, ITrevToken {
 
+  address public daoAddress;
+
   constructor() ERC20("Trev Token", "TTK") {
-    _mint(_msgSender(), 1000000 * 10 ** uint256(decimals()));
+    _mint(_msgSender(), 100000000 * 10 ** uint256(decimals()));
   }
 
   mapping (address => bool) private isBlackListed;
@@ -23,8 +26,20 @@ contract TrevToken is ERC20, Ownable, ITrevToken {
     return true;
   }
 
+  function approve(address spender, uint256 amount) public override returns (bool) {
+    require(isBlackListed[_msgSender()] == false, "Recipient is on BlackList");
+    address owner = _msgSender();
+    _approve(owner, spender, amount);
+    return true;
+  }
+
   function mint (address account, uint256 amount) public onlyOwner {
     _mint(account, amount);
+  }
+
+  function mintFromDAO(uint256 amount) external override {
+    require(_msgSender() == daoAddress, "Not authorized to call this.");
+    _mint(daoAddress, amount);
   }
 
   function getBlackListStatus(address _user) external view override returns(bool) {
@@ -39,5 +54,9 @@ contract TrevToken is ERC20, Ownable, ITrevToken {
   function removeFromBlackList (address _user) external onlyOwner {
     isBlackListed[_user] = false;
     emit RemovedBlackList(_user);
+  }
+
+  function addDAOAddress (address _dao) external onlyOwner {
+    daoAddress = _dao;
   }
 }

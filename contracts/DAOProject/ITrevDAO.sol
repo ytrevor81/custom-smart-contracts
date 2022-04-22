@@ -7,6 +7,4 @@ interface ITrevDAO {
   function proposalDefeated(uint256 _proposalID) external returns (bool);
 
   function proposalSucceeded(uint256 _proposalID) external returns (bool success);
-
-  function proposalExpired(uint256 _proposalID) external returns (bool);
 }
