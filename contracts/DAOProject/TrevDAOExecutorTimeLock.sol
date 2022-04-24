@@ -9,12 +9,9 @@ contract TrevDAOExecutorTimeLock is ITrevDAOExecutorTimeLock {
   address private governor;
   address immutable trevDAOAddress;
 
-  struct PendingProposal {
-    uint256 proposalID;
-    uint256 deadline;
-  }
-
-  PendingProposal[] private pendingProposals;
+  mapping (uint256 => uint256) private storedProposalDeadline; //proposal id mapped to block.timestamp deadline
+  mapping (uint256 => bool) private approvedProposals;
+  mapping (uint256 => bool)  private activeProposals;
 
   event AssignedDAOAddress (address indexed _daoAddress);
   event AssignedGovernorAddress (address indexed _newGovernor);
@@ -36,32 +33,40 @@ contract TrevDAOExecutorTimeLock is ITrevDAOExecutorTimeLock {
   }
 
   function checkProposalForDecision(uint256 _proposalID, uint256 _votesFor, uint256 _votesAgainst, uint256 _numberOfVotes, uint256 _quorum) external onlyTrevDAO override {
-    PendingProposal memory proposal = pendingProposals[_proposalID]; //proposal id works as the index of the array
+    uint256 proposalDeadline = storedProposalDeadline[_proposalID];
 
-    if (proposal.deadline >= block.timestamp) {
+    if (block.timestamp >= proposalDeadline) {
       if (_numberOfVotes >= _quorum) {
         if (_votesFor <= _votesAgainst) {
-          ITrevDAO(trevDAOAddress).proposalDefeated(proposal.proposalID);
+          activeProposals[_proposalID] = false;
+          ITrevDAO(trevDAOAddress).proposalDefeated(_proposalID);
         }
         else if (_votesFor > _votesAgainst) {
-          ITrevDAO(trevDAOAddress).proposalExpired(proposal.proposalID);
+          approvedProposals[_proposalID] = true;
+          activeProposals[_proposalID] = false;
+          ITrevDAO(trevDAOAddress).proposalSucceeded(_proposalID);
         }
       }
       else {
-        ITrevDAO(trevDAOAddress).proposalExpired(proposal.proposalID);
+        activeProposals[_proposalID] = false;
+        ITrevDAO(trevDAOAddress).proposalDefeated(_proposalID);
       }
     }
   }
 
   function submitProposal(uint256 _proposalID, uint256 _deadline) external override onlyTrevDAO {
-    PendingProposal memory proposal = PendingProposal(_proposalID, _deadline);
-    pendingProposals.push(proposal);
+    storedProposalDeadline[_proposalID] = _deadline;
+    activeProposals[_proposalID] = true;
 
-    emit NewProposalSubmitted(proposal.proposalID, proposal.deadline);
+    emit NewProposalSubmitted(_proposalID, _deadline);
   }
 
-  function seePendingProposals() external view returns (PendingProposal[] memory) {
-    return pendingProposals;
+  function isProposalActive(uint256 proposalID) external view returns (bool) {
+    return activeProposals[proposalID];
+  }
+
+  function isProposalApproved(uint256 proposalID) external view returns (bool) {
+    return approvedProposals[proposalID];
   }
 
   function setGovernor(address _newGovernor) external onlyGovernor {

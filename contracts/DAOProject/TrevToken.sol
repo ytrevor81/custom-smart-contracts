@@ -33,12 +33,8 @@ contract TrevToken is ERC20, Ownable, ITrevToken {
     return true;
   }
 
-  function mint (address account, uint256 amount) public onlyOwner {
-    _mint(account, amount);
-  }
-
-  function mintFromDAO(uint256 amount) external override {
-    require(_msgSender() == daoAddress, "Not authorized to call this.");
+  function mint (uint256 amount) external override {
+    require(_msgSender() == daoAddress, "Only Trev DAO can mint tokens");
     _mint(daoAddress, amount);
   }
 

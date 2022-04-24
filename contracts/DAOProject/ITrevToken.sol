@@ -5,6 +5,6 @@ interface ITrevToken  {
 
   function getBlackListStatus(address _user) external view returns(bool);
 
-  function mintFromDAO(uint256 amount) external;
+  function mint(uint256 amount) external;
 
 }
