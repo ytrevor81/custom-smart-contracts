@@ -32,11 +32,13 @@ contract TrevDAOExecutorTimeLock is ITrevDAOExecutorTimeLock {
     _;
   }
 
-  function checkProposalForDecision(uint256 _proposalID, uint256 _votesFor, uint256 _votesAgainst, uint256 _numberOfVotes, uint256 _quorum) external onlyTrevDAO override {
+  function checkProposalForDecision(uint256 _proposalID, uint256 _votesFor, uint256 _votesAgainst, bool metQuorum) external onlyTrevDAO override {
+    require(activeProposals[_proposalID] == true, "Only active proposals are considered");
+
     uint256 proposalDeadline = storedProposalDeadline[_proposalID];
 
     if (block.timestamp >= proposalDeadline) {
-      if (_numberOfVotes >= _quorum) {
+      if (metQuorum) {
         if (_votesFor <= _votesAgainst) {
           activeProposals[_proposalID] = false;
           ITrevDAO(trevDAOAddress).proposalDefeated(_proposalID);

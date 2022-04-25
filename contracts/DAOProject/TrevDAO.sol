@@ -23,26 +23,23 @@ contract TrevDAO is ITrevDAO {
     uint256 proposalID;
     string description; //change to bytes32 eventually
     address proposer;
-    address[] voters;
-    uint256 votesFor;
-    uint256 votesAgainst;
-    uint256 numberOfVotes;
     uint256 dateProposed;
     uint256 deadline;
-    ProposalState state;
   }
 
-  struct Vote {
-    address voter;
-    uint256 proposalID;
-    bool support;
-  }
+  Proposal[] proposals; //stored list of all proposals
 
-  Vote[] votes;
-  Proposal[] proposals;
+  //voter address mapped to a mapping of proposal ID mapped to boolean
+  mapping (address => mapping(uint256 => bool)) private voterAlreadyVoted;
 
-  //address mapped to specific vote
-  mapping (address => Vote) private submittedVotes;
+  //proposal ID => numVotesFor
+  mapping (uint256 => uint256) public votesForProposal;
+
+  //proposal ID => state
+  mapping (uint256 => ProposalState) public stateOfProposal;
+
+  //proposal ID => numVotesAgainst
+  mapping (uint256 => uint256) private votesAgainstProposal;
 
   //staker address mapped to a mapping of the amount invested mapped to the block time the investment was made
   mapping (address => mapping(uint256 => uint256)) public stakingTime;
@@ -52,9 +49,6 @@ contract TrevDAO is ITrevDAO {
 
   //proposal ID mapped to whether it has met the minimum amount of votes to be considered for execution
   mapping (uint256 => bool) private proposalMetQuorum;
-
-  //returns how many votes in total a proposal has received
-  mapping (uint256 => uint256) private numberOfVotesForProposal;
 
   constructor (address _trevTokenAddress) {
     trevTokenAddress = _trevTokenAddress;
@@ -70,19 +64,22 @@ contract TrevDAO is ITrevDAO {
     uint256 proposalID,
     string description,
     address proposer,
-    uint256 deadline);
+    uint256 deadline
+    );
 
   event ProposalDefeated (
     uint256 proposalID,
-    string description,
     ProposalState state
     );
 
   event ProposalExecuted (
     uint256 proposalID,
-    string description,
     ProposalState state
     );
+
+  event ProposalMetQuorum (
+    uint256 proposalID
+  );
 
   event Staking (
     address staker,
@@ -111,11 +108,6 @@ contract TrevDAO is ITrevDAO {
     * Modifiers
   **/
 
-  //only allows TTK holders
-  modifier onlyTTKHolder() {
-   require(TrevToken(trevTokenAddress).balanceOf(msg.sender) > 0, "Only TrevToken holders can participate");
-   _;
-  }
   //only allows the governor address
   modifier onlyGovernor() {
     require(msg.sender == governor, "Only the governor can call this function");
@@ -148,12 +140,6 @@ contract TrevDAO is ITrevDAO {
     return proposal;
   }
 
-  //Returns a specific vote from a voter
-  function viewVote(address _user) external view returns (Vote memory) {
-    Vote memory vote = submittedVotes[_user];
-    return vote;
-  }
-
   function seeBalenceOfContract() external view returns (uint256) {
     uint256 currentBalence = TrevToken(trevTokenAddress).balanceOf(address(this));
     return currentBalence;
@@ -163,61 +149,37 @@ contract TrevDAO is ITrevDAO {
     * Voting functions:
   **/
 
-  function determineVoteForOrAgainst(Vote memory _vote) internal pure returns(bool) {
-    return _vote.support;
-  }
+  function voteAssignedToProposal(address voter, uint256 proposalID, bool support) internal {
+    voterAlreadyVoted[voter][proposalID] == true; //cannot vote again
 
-  function voterAlreadyVotedOnProposal(address _user) internal view returns (bool) {
-    if (submittedVotes[_user].proposalID != 0) {
-      return true;
-    }
-
-    return false;
-  }
-
-  function voteAssignedToProposal(Vote memory _vote) internal {
-    Proposal memory proposal = proposals[_vote.proposalID];
-    uint256 lengthOfPreviousVotersArray = proposal.voters.length;
-    address[] memory updatedVotersArray = new address[](lengthOfPreviousVotersArray++);
-
-    for (uint i=0; i < updatedVotersArray.length; i++) {
-      if (i < lengthOfPreviousVotersArray) {
-        updatedVotersArray[i] = proposal.voters[i];
-      }
-      else {
-        updatedVotersArray[i] = _vote.voter;
-      }
-    }
-    proposals[_vote.proposalID].voters = updatedVotersArray;
-
-    proposals[_vote.proposalID].numberOfVotes = proposals[_vote.proposalID].numberOfVotes + 1;
-
-    if (proposals[_vote.proposalID].numberOfVotes >= quorum) {
-      proposalMetQuorum[proposals[_vote.proposalID].proposalID] = true;
-    }
-
-    if (_vote.support) {
-      proposals[_vote.proposalID].votesFor = proposals[_vote.proposalID].votesFor + 1;
+    if (support) {
+      uint256 totalVotesForProposal = votesForProposal[proposalID];
+      votesForProposal[proposalID] = totalVotesForProposal + 1;
     }
     else {
-      proposals[_vote.proposalID].votesAgainst = proposals[_vote.proposalID].votesAgainst + 1;
+      uint256 totalVotesAgainstProposal = votesAgainstProposal[proposalID];
+      votesAgainstProposal[proposalID] = totalVotesAgainstProposal + 1;
+    }
+
+    uint256 totalNumOfVotes = votesForProposal[proposalID] + votesAgainstProposal[proposalID];
+
+    if (totalNumOfVotes >= quorum) {
+      proposalMetQuorum[proposalID] = true;
+      emit ProposalMetQuorum(proposalID);
     }
   }
 
   function castVote(uint256 _proposalID, bool _support) external returns (bool) {
     address _sender = msg.sender;
     TrevToken token = TrevToken(trevTokenAddress);
-
-    require(submittedVotes[_sender].voter != _sender, "User has already voted on this proposal");
+    require(stateOfProposal[_proposalID] == ProposalState.Active, "Proposal is not active");
+    require(voterAlreadyVoted[_sender][_proposalID] == false, "User has already voted on this proposal");
     require(token.balanceOf(_sender) > 0, "Only TrevToken holders can participate");
 
     token.transferFrom(_sender, address(this), valueOfEachVote);
+    voteAssignedToProposal(_sender, _proposalID, _support);
+    emit VoteSubmitted(_sender, _proposalID, _support);
 
-    Vote memory newVote = Vote(_sender, _proposalID, _support);
-    submittedVotes[_sender] = newVote;
-    voteAssignedToProposal(newVote);
-
-    emit VoteSubmitted(newVote.voter, newVote.proposalID, newVote.support);
     return true;
   }
 
@@ -232,11 +194,10 @@ contract TrevDAO is ITrevDAO {
     uint256 _deadline = block.timestamp + votingPeriod;
     uint256 dateProposed = block.timestamp;
     uint256 deadline = block.timestamp + _deadline;
-    ProposalState state = ProposalState.Active;
 
-    address[] memory _voters;
+    stateOfProposal[proposalIDCounter] = ProposalState.Active;
 
-    Proposal memory newProposal = Proposal(proposalIDCounter, _description, proposer, _voters, 0, 0, 0, dateProposed, deadline, state);
+    Proposal memory newProposal = Proposal(proposalIDCounter, _description, proposer, dateProposed, deadline);
     proposals.push(newProposal);
 
     proposalIDCounter++;
@@ -248,7 +209,7 @@ contract TrevDAO is ITrevDAO {
     return true;
   }
 
-  function withdraw() external returns (bool) {
+  function unstake() external returns (bool) {
     address sender = msg.sender;
     uint256 depositAmount = stakingAmount[sender];
     require(depositAmount > 0, "Not staking");
@@ -272,7 +233,7 @@ contract TrevDAO is ITrevDAO {
 
     }
 
-  function stake(uint256 amount) public returns (bool) {
+  function stake(uint256 amount) external returns (bool) {
     address staker = msg.sender;
     require(stakingAmount[staker] == 0, "Just for the purpose of this demo, you can't add to your current stake");
 
@@ -288,25 +249,24 @@ contract TrevDAO is ITrevDAO {
   }
 
   function proposalDefeated(uint256 _proposalID) external onlyExecutor override returns (bool) {
-    Proposal memory defeatedProposal = proposals[_proposalID];
-    defeatedProposal.state = ProposalState.Defeated;
-
-    emit ProposalDefeated(defeatedProposal.proposalID, defeatedProposal.description, defeatedProposal.state);
+    stateOfProposal[_proposalID] = ProposalState.Defeated;
+    emit ProposalDefeated(_proposalID, ProposalState.Defeated);
     return true;
   }
 
   function proposalSucceeded(uint256 _proposalID) external onlyExecutor override returns (bool) {
-    Proposal memory succeededProposal = proposals[_proposalID];
-    succeededProposal.state = ProposalState.Suceeded;
-
-    emit ProposalExecuted(succeededProposal.proposalID, succeededProposal.description, succeededProposal.state);
+    stateOfProposal[_proposalID] = ProposalState.Suceeded;
+    emit ProposalExecuted(_proposalID, ProposalState.Suceeded);
     return true;
   }
 
   function checkProposalForExecution(uint256 _proposalID) external onlyGovernor {
-    Proposal memory proposal = proposals[_proposalID];
-    require (proposal.state == ProposalState.Active, "Proposal is not active.");
-    ITrevDAOExecutorTimeLock(executor).checkProposalForDecision(_proposalID, proposal.votesFor, proposal.votesAgainst, proposal.numberOfVotes, quorum);
+    require (stateOfProposal[_proposalID] == ProposalState.Active, "Proposal is not active.");
+    uint256 votesFor = votesForProposal[_proposalID];
+    uint256 votesAgainst = votesAgainstProposal[_proposalID];
+    bool metQuorum = proposalMetQuorum[_proposalID];
+
+    ITrevDAOExecutorTimeLock(executor).checkProposalForDecision(_proposalID, votesFor, votesAgainst, metQuorum);
   }
 
   /**
@@ -337,4 +297,7 @@ contract TrevDAO is ITrevDAO {
     quorum = _quorum; //time lock smart contract
     emit QuorumChanged(_quorum);
   }
+
+  //uint256 lengthOfPreviousVotersArray = proposal.voters.length;
+    //address[] memory updatedVotersArray = new address[](lengthOfPreviousVotersArray++);
 }
