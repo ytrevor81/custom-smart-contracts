@@ -2,10 +2,8 @@
 pragma solidity ^0.8.0;
 
 import "./TrevToken.sol";
-import "./ITrevDAO.sol";
-import "./ITrevDAOExecutorTimeLock.sol";
 
-contract TrevDAO is ITrevDAO {
+contract TrevDAO {
 
   address public trevTokenAddress;
   address public governor;
@@ -47,9 +45,6 @@ contract TrevDAO is ITrevDAO {
   //staker address mapped to a uint256
   mapping (address => uint256) public stakingAmount;
 
-  //proposal ID mapped to whether it has met the minimum amount of votes to be considered for execution
-  mapping (uint256 => bool) private proposalMetQuorum;
-
   constructor (address _trevTokenAddress) {
     trevTokenAddress = _trevTokenAddress;
     governor = msg.sender;
@@ -69,17 +64,14 @@ contract TrevDAO is ITrevDAO {
 
   event ProposalDefeated (
     uint256 proposalID,
-    ProposalState state
+    ProposalState state,
+    string explanation
     );
 
-  event ProposalExecuted (
+  event ProposalSucceeded (
     uint256 proposalID,
     ProposalState state
     );
-
-  event ProposalMetQuorum (
-    uint256 proposalID
-  );
 
   event Staking (
     address staker,
@@ -160,13 +152,6 @@ contract TrevDAO is ITrevDAO {
       uint256 totalVotesAgainstProposal = votesAgainstProposal[proposalID];
       votesAgainstProposal[proposalID] = totalVotesAgainstProposal + 1;
     }
-
-    uint256 totalNumOfVotes = votesForProposal[proposalID] + votesAgainstProposal[proposalID];
-
-    if (totalNumOfVotes >= quorum) {
-      proposalMetQuorum[proposalID] = true;
-      emit ProposalMetQuorum(proposalID);
-    }
   }
 
   function castVote(uint256 _proposalID, bool _support) external returns (bool) {
@@ -202,12 +187,42 @@ contract TrevDAO is ITrevDAO {
 
     proposalIDCounter++;
 
-    ITrevDAOExecutorTimeLock(executor).submitProposal(newProposal.proposalID, newProposal.deadline);
-
     emit ProposalSubmitted(newProposal.proposalID, newProposal.description, newProposal.proposer, newProposal.deadline);
 
     return true;
   }
+
+  function checkProposalForDecision(uint256 _proposalID) external onlyGovernor {
+    require (stateOfProposal[_proposalID] == ProposalState.Active, "Proposal is not active.");
+    Proposal memory proposal = proposals[_proposalID];
+    require (block.timestamp >= proposal.deadline, "Proposal is still pending.");
+
+    uint256 votesFor = votesForProposal[_proposalID];
+    uint256 votesAgainst = votesAgainstProposal[_proposalID];
+    uint256 totalNumOfVotes = votesFor + votesAgainst;
+
+    if (totalNumOfVotes >= quorum) {
+        if (votesFor <= votesAgainst) {
+          stateOfProposal[_proposalID] == ProposalState.Defeated;
+          emit ProposalDefeated(_proposalID, ProposalState.Defeated, "More votes against than for proposal.");
+          return;
+        }
+        else if (votesFor > votesAgainst) {
+          stateOfProposal[_proposalID] == ProposalState.Suceeded;
+          emit ProposalSucceeded(_proposalID, ProposalState.Suceeded);
+          return;
+        }
+    }
+    else {
+        stateOfProposal[_proposalID] == ProposalState.Defeated;
+         emit ProposalDefeated(_proposalID, ProposalState.Defeated, "Proposal did not meet quorum.");
+         return;
+    }
+  }
+
+  /**
+    * Staking functions
+  **/
 
   function unstake() external returns (bool) {
     address sender = msg.sender;
@@ -215,9 +230,6 @@ contract TrevDAO is ITrevDAO {
     require(depositAmount > 0, "Not staking");
 
     uint256 depositTime = block.timestamp - stakingTime[sender][depositAmount];
-
-    // uint256 interestPerSecond = 100000000000000 * (stakingAmount[sender] / 1e16);
-    // uint256 interest = interestPerSecond * depositTime;
     uint256 interest = depositAmount * depositTime;
 
     uint256 totalAmount = depositAmount + interest;
@@ -230,7 +242,6 @@ contract TrevDAO is ITrevDAO {
     emit Withdraw(sender, totalAmount);
 
     return true;
-
     }
 
   function stake(uint256 amount) external returns (bool) {
@@ -246,27 +257,6 @@ contract TrevDAO is ITrevDAO {
 
     emit Staking(staker, amount, currentTime);
     return true;
-  }
-
-  function proposalDefeated(uint256 _proposalID) external onlyExecutor override returns (bool) {
-    stateOfProposal[_proposalID] = ProposalState.Defeated;
-    emit ProposalDefeated(_proposalID, ProposalState.Defeated);
-    return true;
-  }
-
-  function proposalSucceeded(uint256 _proposalID) external onlyExecutor override returns (bool) {
-    stateOfProposal[_proposalID] = ProposalState.Suceeded;
-    emit ProposalExecuted(_proposalID, ProposalState.Suceeded);
-    return true;
-  }
-
-  function checkProposalForExecution(uint256 _proposalID) external onlyGovernor {
-    require (stateOfProposal[_proposalID] == ProposalState.Active, "Proposal is not active.");
-    uint256 votesFor = votesForProposal[_proposalID];
-    uint256 votesAgainst = votesAgainstProposal[_proposalID];
-    bool metQuorum = proposalMetQuorum[_proposalID];
-
-    ITrevDAOExecutorTimeLock(executor).checkProposalForDecision(_proposalID, votesFor, votesAgainst, metQuorum);
   }
 
   /**
@@ -297,7 +287,4 @@ contract TrevDAO is ITrevDAO {
     quorum = _quorum; //time lock smart contract
     emit QuorumChanged(_quorum);
   }
-
-  //uint256 lengthOfPreviousVotersArray = proposal.voters.length;
-    //address[] memory updatedVotersArray = new address[](lengthOfPreviousVotersArray++);
 }
