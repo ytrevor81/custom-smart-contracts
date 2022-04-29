@@ -195,7 +195,7 @@ contract TrevDAO {
   function checkProposalForDecision(uint256 _proposalID) external onlyGovernor {
     require (stateOfProposal[_proposalID] == ProposalState.Active, "Proposal is not active.");
     Proposal memory proposal = proposals[_proposalID];
-    require (block.timestamp >= proposal.deadline, "Proposal is still pending.");
+    require (block.timestamp >= proposal.deadline, "Proposal is still pending."); //time lock
 
     uint256 votesFor = votesForProposal[_proposalID];
     uint256 votesAgainst = votesAgainstProposal[_proposalID];
@@ -230,7 +230,7 @@ contract TrevDAO {
     require(depositAmount > 0, "Not staking");
 
     uint256 depositTime = block.timestamp - stakingTime[sender][depositAmount];
-    uint256 interest = depositAmount * depositTime;
+    uint256 interest = depositAmount + depositTime;
 
     uint256 totalAmount = depositAmount + interest;
     TrevToken token = TrevToken(trevTokenAddress);
@@ -247,15 +247,15 @@ contract TrevDAO {
   function stake(uint256 amount) external returns (bool) {
     address staker = msg.sender;
     require(stakingAmount[staker] == 0, "Just for the purpose of this demo, you can't add to your current stake");
-
+    uint256 realAmount = amount * (10 ** 18);
     TrevToken token = TrevToken(trevTokenAddress);
     uint256 currentTime = block.timestamp;
 
-    token.transferFrom(staker, address(this), amount);
-    stakingAmount[staker] = amount;
-    stakingTime[staker][amount] = currentTime;
+    token.transferFrom(staker, address(this), realAmount);
+    stakingAmount[staker] = realAmount;
+    stakingTime[staker][realAmount] = currentTime;
 
-    emit Staking(staker, amount, currentTime);
+    emit Staking(staker, realAmount, currentTime);
     return true;
   }
 
