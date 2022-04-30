@@ -7,13 +7,11 @@ contract TrevDAO {
 
   address public trevTokenAddress;
   address public governor;
-  address public executor;
   uint256 public votingPeriod;
 
   uint256 private immutable valueOfEachVote;
   uint256 private proposalIDCounter;
   uint256 private quorum;
-  bool private executorContractSet; //switched only once in contract lifetime
 
   enum ProposalState { Active, Defeated, Suceeded }
 
@@ -30,14 +28,14 @@ contract TrevDAO {
   //voter address mapped to a mapping of proposal ID mapped to boolean
   mapping (address => mapping(uint256 => bool)) private voterAlreadyVoted;
 
-  //proposal ID => numVotesFor
-  mapping (uint256 => uint256) public votesForProposal;
-
   //proposal ID => state
   mapping (uint256 => ProposalState) public stateOfProposal;
 
+  //proposal ID => numVotesFor
+  mapping (uint256 => uint256) public votesForProposal;
+
   //proposal ID => numVotesAgainst
-  mapping (uint256 => uint256) private votesAgainstProposal;
+  mapping (uint256 => uint256) public votesAgainstProposal;
 
   //staker address mapped to a mapping of the amount invested mapped to the block time the investment was made
   mapping (address => mapping(uint256 => uint256)) public stakingTime;
@@ -49,10 +47,9 @@ contract TrevDAO {
     trevTokenAddress = _trevTokenAddress;
     governor = msg.sender;
     proposalIDCounter = 0;
-    quorum = 3;
-    votingPeriod = 1 minutes;
-    valueOfEachVote = 1 * 10 **18; //1 token is 1 vote
-    executorContractSet = false;
+    quorum = 2;
+    votingPeriod = 2 minutes;
+    valueOfEachVote = 1 * 10 ** 18; //1 token is 1 vote
   }
 
   event ProposalSubmitted (
@@ -90,9 +87,7 @@ contract TrevDAO {
     bool support
     );
 
-  event ExecutorRoleAssigned (address indexed _executor);
   event GovernorRoleAssigned (address indexed _governor);
-
   event VotingPeriodChanged (uint256 newVotingPeriod);
   event QuorumChanged (uint256 newQuorum);
 
@@ -103,12 +98,6 @@ contract TrevDAO {
   //only allows the governor address
   modifier onlyGovernor() {
     require(msg.sender == governor, "Only the governor can call this function");
-    _;
-  }
-
-  //only allows the proposal executor address
-  modifier onlyExecutor() {
-    require(msg.sender == executor, "Only the executor can call this function");
     _;
   }
 
@@ -137,12 +126,27 @@ contract TrevDAO {
     return currentBalence;
   }
 
+  function alreadyVoted(uint256 proposalID) external view returns (bool) {
+    address sender = msg.sender;
+    return voterAlreadyVoted[sender][proposalID];
+  }
+
+  function proposalReachedDeadline(uint256 _proposalID) public view returns (bool) {
+    Proposal memory proposal = proposals[_proposalID];
+
+    if (block.timestamp > proposal.deadline) {
+      return true;
+    }
+
+    return false;
+  }
+
   /**
     * Voting functions:
   **/
 
   function voteAssignedToProposal(address voter, uint256 proposalID, bool support) internal {
-    voterAlreadyVoted[voter][proposalID] == true; //cannot vote again
+    voterAlreadyVoted[voter][proposalID] = true; //cannot vote again
 
     if (support) {
       uint256 totalVotesForProposal = votesForProposal[proposalID];
@@ -157,7 +161,8 @@ contract TrevDAO {
   function castVote(uint256 _proposalID, bool _support) external returns (bool) {
     address _sender = msg.sender;
     TrevToken token = TrevToken(trevTokenAddress);
-    require(stateOfProposal[_proposalID] == ProposalState.Active, "Proposal is not active");
+    require(token.getBlackListStatus(_sender) == false, "User is blacklisted from TTK");
+    require(proposalReachedDeadline(_proposalID) == false, "Proposal voting period has expired");
     require(voterAlreadyVoted[_sender][_proposalID] == false, "User has already voted on this proposal");
     require(token.balanceOf(_sender) > 0, "Only TrevToken holders can participate");
 
@@ -174,11 +179,12 @@ contract TrevDAO {
 
   function submitProposal(string calldata _description) external returns (bool success) {
     address proposer = msg.sender;
+
+    require(TrevToken(trevTokenAddress).getBlackListStatus(proposer) == false, "User is blacklisted from TTK");
     require(TrevToken(trevTokenAddress).balanceOf(proposer) > 0, "Only TrevToken holders can participate");
 
-    uint256 _deadline = block.timestamp + votingPeriod;
+    uint256 deadline = block.timestamp + votingPeriod;
     uint256 dateProposed = block.timestamp;
-    uint256 deadline = block.timestamp + _deadline;
 
     stateOfProposal[proposalIDCounter] = ProposalState.Active;
 
@@ -194,8 +200,7 @@ contract TrevDAO {
 
   function checkProposalForDecision(uint256 _proposalID) external onlyGovernor {
     require (stateOfProposal[_proposalID] == ProposalState.Active, "Proposal is not active.");
-    Proposal memory proposal = proposals[_proposalID];
-    require (block.timestamp >= proposal.deadline, "Proposal is still pending."); //time lock
+    require (proposalReachedDeadline(_proposalID) == true, "Proposal is still pending."); //time lock
 
     uint256 votesFor = votesForProposal[_proposalID];
     uint256 votesAgainst = votesAgainstProposal[_proposalID];
@@ -203,18 +208,18 @@ contract TrevDAO {
 
     if (totalNumOfVotes >= quorum) {
         if (votesFor <= votesAgainst) {
-          stateOfProposal[_proposalID] == ProposalState.Defeated;
+          stateOfProposal[_proposalID] = ProposalState.Defeated;
           emit ProposalDefeated(_proposalID, ProposalState.Defeated, "More votes against than for proposal.");
           return;
         }
         else if (votesFor > votesAgainst) {
-          stateOfProposal[_proposalID] == ProposalState.Suceeded;
+          stateOfProposal[_proposalID] = ProposalState.Suceeded;
           emit ProposalSucceeded(_proposalID, ProposalState.Suceeded);
           return;
         }
     }
     else {
-        stateOfProposal[_proposalID] == ProposalState.Defeated;
+        stateOfProposal[_proposalID] = ProposalState.Defeated;
          emit ProposalDefeated(_proposalID, ProposalState.Defeated, "Proposal did not meet quorum.");
          return;
     }
@@ -264,14 +269,6 @@ contract TrevDAO {
     * the governor of this DAO protocal can assign the executor role via setExecutor() and transfer
     * the governor role to another address via assignNewGoverner().
   **/
-
-  //the executor of proposals is a time-lock contract that will execute decisions based on if a proposal has met the required quorum, votes for/against
-  function setExecutor (address _executor) external onlyGovernor {
-    require(executorContractSet == false, "This can only be called once"); //this function can only be called one time in this contract's lifetime
-    executorContractSet = true; //cannot call this function again
-    executor = _executor; //time lock smart contract
-    emit ExecutorRoleAssigned(_executor);
-  }
 
   function assignNewGovernor (address _governor) external onlyGovernor {
     governor = _governor;
