@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./TrevToken.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./ITrevToken.sol";
 
 contract TrevDAO {
 
@@ -122,7 +123,7 @@ contract TrevDAO {
   }
 
   function seeBalenceOfContract() external view returns (uint256) {
-    uint256 currentBalence = TrevToken(trevTokenAddress).balanceOf(address(this));
+    uint256 currentBalence = IERC20(trevTokenAddress).balanceOf(address(this));
     return currentBalence;
   }
 
@@ -160,8 +161,8 @@ contract TrevDAO {
 
   function castVote(uint256 _proposalID, bool _support) external returns (bool) {
     address _sender = msg.sender;
-    TrevToken token = TrevToken(trevTokenAddress);
-    require(token.getBlackListStatus(_sender) == false, "User is blacklisted from TTK");
+    IERC20 token = IERC20(trevTokenAddress);
+    require(ITrevToken(trevTokenAddress).getBlackListStatus(_sender) == false, "User is blacklisted from TTK");
     require(proposalReachedDeadline(_proposalID) == false, "Proposal voting period has expired");
     require(voterAlreadyVoted[_sender][_proposalID] == false, "User has already voted on this proposal");
     require(token.balanceOf(_sender) > 0, "Only TrevToken holders can participate");
@@ -180,8 +181,8 @@ contract TrevDAO {
   function submitProposal(string calldata _description) external returns (bool success) {
     address proposer = msg.sender;
 
-    require(TrevToken(trevTokenAddress).getBlackListStatus(proposer) == false, "User is blacklisted from TTK");
-    require(TrevToken(trevTokenAddress).balanceOf(proposer) > 0, "Only TrevToken holders can participate");
+    require(ITrevToken(trevTokenAddress).getBlackListStatus(proposer) == false, "User is blacklisted from TTK");
+    require(IERC20(trevTokenAddress).balanceOf(proposer) > 0, "Only TrevToken holders can participate");
 
     uint256 deadline = block.timestamp + votingPeriod;
     uint256 dateProposed = block.timestamp;
@@ -238,9 +239,9 @@ contract TrevDAO {
     uint256 interest = depositAmount + depositTime;
 
     uint256 totalAmount = depositAmount + interest;
-    TrevToken token = TrevToken(trevTokenAddress);
+    IERC20 token = IERC20(trevTokenAddress);
 
-    token.mint(interest);
+    ITrevToken(trevTokenAddress).mint(interest);
     token.transfer(msg.sender, totalAmount);
 
     stakingAmount[sender] = 0;
@@ -253,7 +254,7 @@ contract TrevDAO {
     address staker = msg.sender;
     require(stakingAmount[staker] == 0, "Just for the purpose of this demo, you can't add to your current stake");
     uint256 realAmount = amount * (10 ** 18);
-    TrevToken token = TrevToken(trevTokenAddress);
+    IERC20 token = IERC20(trevTokenAddress);
     uint256 currentTime = block.timestamp;
 
     token.transferFrom(staker, address(this), realAmount);
